@@ -1,4 +1,6 @@
 use defmt::info;
+use embassy_futures::join::join;
+use embassy_time::{Duration, Timer};
 use esp_hal::{
     Blocking, gpio::{AnyPin, Level, Output, OutputConfig}, spi::{Error as SpiError, Mode, master::{AnySpi, Config as SpiConfig, ConfigError, Spi}
     }, time::Rate
@@ -114,6 +116,15 @@ impl<'tube_driver> NixieTubes<'tube_driver> {
         self.latch_enable.toggle();
         Ok(())
     }
+
+    async fn anti_poison(&mut self, cycles: u8, step_duration: Duration) {
+        for _cycle in 0..cycles {
+            for digit in NixieDigit::parse_str(".0123456789,") {
+                self.write([digit; 8]).unwrap();
+                Timer::after(step_duration).await;
+            }
+        }
+    }
 }
 
 trait TubeWriteable: defmt::Format {
@@ -137,12 +148,6 @@ impl TubeWriteable for HeaplessString<8> {
 impl TubeWriteable for [NixieDigit; 8] {
     fn to_bits(&self) -> [u8; 12] {
         pack_digits(*self)
-    }
-}
-
-impl TubeWriteable for [u8; 12] {
-    fn to_bits(&self) -> [u8; 12] {
-        *self
     }
 }
 
