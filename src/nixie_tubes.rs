@@ -1,42 +1,56 @@
-use defmt::info;
-use embassy_futures::join::join;
+use defmt::{info, todo};
+use embassy_futures::select::{Either, select};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::{
-    Blocking, gpio::{AnyPin, Level, Output, OutputConfig}, spi::{Error as SpiError, Mode, master::{AnySpi, Config as SpiConfig, ConfigError, Spi}
-    }, time::Rate
+    Blocking,
+    gpio::{AnyPin, Level, Output, OutputConfig},
+    spi::{
+        Error as SpiError, Mode,
+        master::{AnySpi, Config as SpiConfig, ConfigError, Spi},
+    },
+    time::Rate,
 };
 use trouble_host::prelude::HeaplessString;
 
 use crate::ble::TUBE_CONTROL_SIGNAL as BLE_CONTROL_SIGNAL;
 
+static DISPLAY_MODE_SIGNAL: Signal<CriticalSectionRawMutex, DisplayMode> = Signal::new();
+
+#[derive(defmt::Format, Clone, Copy)]
+enum DisplayMode {
+    Time,
+    BleControl,
+}
+
 #[derive(defmt::Format)]
 struct NixieTubes<'tube_driver> {
     latch_enable: Output<'tube_driver>,
-    spi: Spi<'tube_driver, Blocking>
+    spi: Spi<'tube_driver, Blocking>,
 }
 
 pub struct TubeConfig<'tube_driver> {
     pub latch_enable_pin: AnyPin<'tube_driver>,
     pub spi_clock_pin: AnyPin<'tube_driver>,
-    pub spi_data_pin: AnyPin<'tube_driver>
+    pub spi_data_pin: AnyPin<'tube_driver>,
 }
 
 #[repr(u16)]
 #[derive(Clone, Copy, defmt::Format)]
 enum NixieDigit {
-    LDP    = !(1 << 11) & 0xFFF,
+    LDP = !(1 << 11) & 0xFFF,
     Digit1 = !(1 << 10) & 0xFFF,
-    Digit2 = !(1 << 9)  & 0xFFF,
-    Digit3 = !(1 << 8)  & 0xFFF,
-    Digit4 = !(1 << 7)  & 0xFFF,
-    Digit5 = !(1 << 6)  & 0xFFF,
-    Digit6 = !(1 << 5)  & 0xFFF,
-    Digit7 = !(1 << 4)  & 0xFFF,
-    Digit8 = !(1 << 3)  & 0xFFF,
-    Digit9 = !(1 << 2)  & 0xFFF,
-    Digit0 = !(1 << 1)  & 0xFFF,
-    RDP    = !1,
-    Off    = !0
+    Digit2 = !(1 << 9) & 0xFFF,
+    Digit3 = !(1 << 8) & 0xFFF,
+    Digit4 = !(1 << 7) & 0xFFF,
+    Digit5 = !(1 << 6) & 0xFFF,
+    Digit6 = !(1 << 5) & 0xFFF,
+    Digit7 = !(1 << 4) & 0xFFF,
+    Digit8 = !(1 << 3) & 0xFFF,
+    Digit9 = !(1 << 2) & 0xFFF,
+    Digit0 = !(1 << 1) & 0xFFF,
+    RDP = !1,
+    Off = !0,
 }
 
 impl NixieDigit {
@@ -61,7 +75,9 @@ impl NixieDigit {
     fn parse_str(digits: &str) -> [NixieDigit; 8] {
         let mut ret = [NixieDigit::Off; 8];
         for (i, digit) in digits.char_indices() {
-            if i > 7 { return ret; }
+            if i > 7 {
+                return ret;
+            }
             ret[i] = Self::from_char(digit);
         }
         ret
@@ -73,12 +89,11 @@ fn pack_digits(digits: [NixieDigit; 8]) -> [u8; 12] {
     let mut ret: [u8; 12] = [0; 12];
     for i in (0..8).step_by(2) {
         let digit0: u16 = digits[i] as u16;
-        let digit1: u16 = digits[i+1] as u16;
+        let digit1: u16 = digits[i + 1] as u16;
 
         ret[ret_idx] = ((digit0 & 0x0FF0) >> 4) as u8;
         ret_idx += 1;
-        ret[ret_idx] = (((digit0 & 0x000F) << 4) |
-                        ((digit1 & 0x0F00) >> 8)) as u8;
+        ret[ret_idx] = (((digit0 & 0x000F) << 4) | ((digit1 & 0x0F00) >> 8)) as u8;
         ret_idx += 1;
         ret[ret_idx] = (digit1 & 0x00FF) as u8;
         ret_idx += 1;
@@ -87,7 +102,10 @@ fn pack_digits(digits: [NixieDigit; 8]) -> [u8; 12] {
 }
 
 impl<'tube_driver> NixieTubes<'tube_driver> {
-    fn init(spi_peripheral: AnySpi<'tube_driver>, config: TubeConfig<'tube_driver>) -> Result<Self, ConfigError> {
+    fn init(
+        spi_peripheral: AnySpi<'tube_driver>,
+        config: TubeConfig<'tube_driver>,
+    ) -> Result<Self, ConfigError> {
         info!("Initializing nixie tube driver");
         // Latch enable GPIO
         let gpio_config = OutputConfig::default();
@@ -99,13 +117,13 @@ impl<'tube_driver> NixieTubes<'tube_driver> {
             spi_peripheral,
             SpiConfig::default()
                 .with_frequency(Rate::from_hz(78125)) // Minimum value, thank god it works
-                .with_mode(Mode::_3)
+                .with_mode(Mode::_3),
         )?
         .with_mosi(config.spi_data_pin)
         .with_sck(config.spi_clock_pin);
         info!("Initialized SPI bus");
 
-        return Ok( Self { latch_enable, spi } );
+        return Ok(Self { latch_enable, spi });
     }
 
     fn write<T: TubeWriteable>(&mut self, value: T) -> Result<(), SpiError> {
@@ -125,6 +143,15 @@ impl<'tube_driver> NixieTubes<'tube_driver> {
             }
         }
     }
+
+    async fn display_time(&mut self) {
+        todo!();
+    }
+
+    async fn display_ble(&mut self) {
+        let value = BLE_CONTROL_SIGNAL.wait().await;
+        self.write(value).unwrap();
+    }
 }
 
 trait TubeWriteable: defmt::Format {
@@ -142,7 +169,7 @@ impl TubeWriteable for HeaplessString<8> {
     fn to_bits(&self) -> [u8; 12] {
         let s: &str = &self;
         s.to_bits()
-    } 
+    }
 }
 
 impl TubeWriteable for [NixieDigit; 8] {
@@ -154,8 +181,17 @@ impl TubeWriteable for [NixieDigit; 8] {
 #[embassy_executor::task]
 pub async fn tube_driver_task(spi_peripheral: AnySpi<'static>, config: TubeConfig<'static>) {
     let mut tubes = NixieTubes::init(spi_peripheral, config).unwrap();
+    let mut display_mode = DisplayMode::Time;
     loop {
-        let value = BLE_CONTROL_SIGNAL.wait().await;
-        tubes.write(value).unwrap();
+        if let Either::First(new_display_mode) = select(DISPLAY_MODE_SIGNAL.wait(), async {
+            match display_mode {
+                DisplayMode::Time => tubes.display_time().await,
+                DisplayMode::BleControl => tubes.display_ble().await,
+            }
+        })
+        .await
+        {
+            display_mode = new_display_mode;
+        };
     }
 }

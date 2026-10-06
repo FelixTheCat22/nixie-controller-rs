@@ -60,8 +60,10 @@ async fn main(spawner: Spawner) {
     let tube_config = nixie_controller_rs::nixie_tubes::TubeConfig {
         latch_enable_pin: peripherals.GPIO18.into(),
         spi_clock_pin: peripherals.GPIO17.into(),
-        spi_data_pin: peripherals.GPIO8.into()
+        spi_data_pin: peripherals.GPIO8.into(),
     };
-    spawner.spawn(nixie_controller_rs::nixie_tubes::tube_driver_task(peripherals.SPI2.into(), tube_config).unwrap());
+    spawner.spawn(
+        nixie_controller_rs::nixie_tubes::tube_driver_task(peripherals.SPI2.into(), tube_config)
+            .unwrap(),
+    );
 }
-
