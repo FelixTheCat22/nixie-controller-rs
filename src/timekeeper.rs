@@ -14,7 +14,7 @@ async fn timekeeper_task(peripheral_rtc: RTC_TIMER<'static>) {
 
     let publish = async {
         loop {
-            publish_time(&rtc);
+            publish_time(&rtc).await;
             ticker.next().await;
         }
     };
@@ -23,6 +23,7 @@ async fn timekeeper_task(peripheral_rtc: RTC_TIMER<'static>) {
         loop {
             let new_timestamp = SET_TIME_SIGNAL.wait().await;
             rtc.set_current_time_us(new_timestamp.as_microsecond() as u64);
+            publish_time(&rtc).await;
         }
     };
 
