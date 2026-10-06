@@ -2,6 +2,7 @@ use defmt::{info, warn};
 use bt_hci::{controller::ExternalController};
 use embassy_executor;
 use embassy_futures::join::join;
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use esp_hal::peripherals::BT;
 use esp_radio::ble::controller::BleConnector;
@@ -49,29 +50,17 @@ pub async fn ble_task(bluetooth_peripheral: BT<'static>) {
         async { loop { runner.run().await.unwrap() } },
         async {
             loop {
-                // Advertise
-                let mut adv_data = [0;31];
-                let len = AdStructure::encode_slice(
-                    &[
-                        AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
-                        AdStructure::CompleteLocalName(b"Nixie Clock")
-                    ],
-                    &mut adv_data[..]    
-                ).unwrap();
-                let advertiser = periph.advertise(
-                    &Default::default(),
-                    Advertisement::ConnectableScannableUndirected { 
-                        adv_data: &adv_data[..len], scan_data: &[] 
-                    }
-                ).await.unwrap();
-                let conn = advertiser.accept().await.unwrap().with_attribute_server(&server).unwrap();
-                info!("BLE device connected.");
+                let conn = advertise(&mut periph, &server).await;
 
                 // Run GATT server
                 let tcs_value = server.tube_control.value.clone();
                 loop {
                     match conn.next().await {
-                        GattConnectionEvent::Disconnected { reason } => info!("BLE device disconnected: {}", reason),
+                        GattConnectionEvent::Disconnected { reason } => {
+                            info!("BLE device disconnected: {}", reason);
+                            info!("going back to advertising.");
+                            break;
+                        },
                         GattConnectionEvent::Gatt { event } => {
                             match &event {
                                 GattEvent::Write(w) => {
@@ -92,4 +81,33 @@ pub async fn ble_task(bluetooth_peripheral: BT<'static>) {
             }
         }
     ).await;
+}
+
+async fn advertise<'stack, 'server, C, P, M>(
+    periph: &mut Peripheral<'stack, C, P>,
+    server: &'server AttributeServer<'_, M, P, _ATTRIBUTE_TABLE_SIZE, _CONNECTIONS_MAX>
+) -> GattConnection<'stack, 'server, P>
+    where
+        C: Controller,
+        P: PacketPool,
+        M: RawMutex
+    {
+    let mut adv_data = [0; 31];
+    let len = AdStructure::encode_slice(
+        &[
+            AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
+            AdStructure::CompleteLocalName(b"Nixie Clock")
+        ], 
+        &mut adv_data[..]
+    ).unwrap();
+    let advertiser = periph.advertise(
+        &Default::default(),
+        Advertisement::ConnectableScannableUndirected {
+            adv_data: &adv_data[0..len],
+            scan_data: &[]
+        }
+    ).await.unwrap();
+    let conn = advertiser.accept().await.unwrap().with_attribute_server(server).unwrap();
+    info!("BLE device connected!");
+    conn
 }
