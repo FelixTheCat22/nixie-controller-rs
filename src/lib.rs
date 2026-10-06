@@ -3,4 +3,4 @@
 pub mod ble;
 pub mod bq32000;
 pub mod nixie_tubes;
-mod timekeeper;
+pub mod timekeeper;

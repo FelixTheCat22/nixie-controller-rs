@@ -1,14 +1,14 @@
 use embassy_futures::join::join;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker};
 use esp_hal::{peripherals::RTC_TIMER, rtc_cntl::Rtc};
 use jiff::Timestamp;
 
-static TIME_MUTEX: Mutex<CriticalSectionRawMutex, Timestamp> = Mutex::new(Timestamp::UNIX_EPOCH);
+pub static TIME_SIGNAL: Signal<CriticalSectionRawMutex, Timestamp> = Signal::new();
 static SET_TIME_SIGNAL: Signal<CriticalSectionRawMutex, Timestamp> = Signal::new();
 
 #[embassy_executor::task]
-async fn timekeeper_task(peripheral_rtc: RTC_TIMER<'static>) {
+pub async fn timekeeper_task(peripheral_rtc: RTC_TIMER<'static>) {
     let mut ticker = Ticker::every(Duration::from_millis(500));
     let rtc = Rtc::new(peripheral_rtc);
 
@@ -32,7 +32,5 @@ async fn timekeeper_task(peripheral_rtc: RTC_TIMER<'static>) {
 
 async fn publish_time(rtc: &Rtc<'_>) {
     let timestamp = Timestamp::from_microsecond(rtc.current_time_us() as i64).unwrap();
-    let mut time_mutex = TIME_MUTEX.lock().await;
-    *time_mutex = timestamp;
-    drop(time_mutex);
+    TIME_SIGNAL.signal(timestamp);
 }

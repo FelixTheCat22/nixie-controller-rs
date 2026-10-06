@@ -55,6 +55,8 @@ async fn main(spawner: Spawner) {
     // find more examples https://github.com/embassy-rs/trouble/tree/main/examples/esp32
 
     // TODO: Spawn some tasks
+    spawner.spawn(nixie_controller_rs::timekeeper::timekeeper_task(peripherals.RTC_TIMER).unwrap());
+
     spawner.spawn(nixie_controller_rs::ble::ble_task(peripherals.BT).unwrap());
 
     let tube_config = nixie_controller_rs::nixie_tubes::TubeConfig {

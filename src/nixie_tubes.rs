@@ -12,8 +12,10 @@ use esp_hal::{
     time::Rate,
 };
 use trouble_host::prelude::HeaplessString;
+use core::fmt::Write as _;
 
 use crate::ble::TUBE_CONTROL_SIGNAL as BLE_CONTROL_SIGNAL;
+use crate::timekeeper::TIME_SIGNAL as TIMEKEEPER_SIGNAL;
 
 static DISPLAY_MODE_SIGNAL: Signal<CriticalSectionRawMutex, DisplayMode> = Signal::new();
 
@@ -27,6 +29,7 @@ enum DisplayMode {
 struct NixieTubes<'tube_driver> {
     latch_enable: Output<'tube_driver>,
     spi: Spi<'tube_driver, Blocking>,
+    decimal_flag: bool
 }
 
 pub struct TubeConfig<'tube_driver> {
@@ -123,7 +126,7 @@ impl<'tube_driver> NixieTubes<'tube_driver> {
         .with_sck(config.spi_clock_pin);
         info!("Initialized SPI bus");
 
-        return Ok(Self { latch_enable, spi });
+        return Ok(Self { latch_enable, spi, decimal_flag: false });
     }
 
     fn write<T: TubeWriteable>(&mut self, value: T) -> Result<(), SpiError> {
@@ -145,7 +148,19 @@ impl<'tube_driver> NixieTubes<'tube_driver> {
     }
 
     async fn display_time(&mut self) {
-        todo!();
+        let time = TIMEKEEPER_SIGNAL.wait().await;
+        let format;
+        if self.decimal_flag {
+            format = "%H.%M.%S";
+        } else {
+            format = "%H,%M,%S";
+        }
+        self.decimal_flag = !self.decimal_flag;
+        let zoned = time.to_zoned(jiff::tz::TimeZone::UTC);
+        let time_str = zoned.strftime(format);
+        let mut value: HeaplessString<8> = HeaplessString::new();
+        write!(value, "{time_str}").unwrap();
+        self.write(value).unwrap();
     }
 
     async fn display_ble(&mut self) {
